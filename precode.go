@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -41,59 +42,68 @@ var tasks = map[string]Task{
 }
 
 // Ниже напишите обработчики для каждого эндпоинта
-func getAllTasks(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(tasks); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Ошибка при кодировании задач в JSON: %v", err)
+func getTasks(w http.ResponseWriter, r *http.Request) {
+	resp, err := json.Marshal(tasks)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp)
 }
 
 func createTask(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	var task Task
-	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Ошибка при декодировании JSON: %v", err)
+	var buf bytes.Buffer
+
+	_, err := buf.ReadFrom(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err = json.Unmarshal(buf.Bytes(), &task); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	tasks[task.ID] = task
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 }
 
-func getTaskByID(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	taskID := chi.URLParam(r, "id")
-	task, ok := tasks[taskID]
+func getTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, ok := tasks[id]
 	if !ok {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Задача с ID %s не найдена", taskID)
+		http.Error(w, "Задача не найдена", http.StatusBadRequest)
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(task); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Ошибка при кодировании задачи в JSON: %v", err)
+	resp, err := json.Marshal(task)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp)
 }
 
-func deleteTaskByID(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	taskID := chi.URLParam(r, "id")
-	_, ok := tasks[taskID]
+func deleteTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	_, ok := tasks[id]
 	if !ok {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Задача с ID %s не найдена", taskID)
+		http.Error(w, "Задача не найдена", http.StatusBadRequest)
 		return
 	}
 
-	delete(tasks, taskID)
+	delete(tasks, id)
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -101,10 +111,10 @@ func main() {
 	r := chi.NewRouter()
 
 	// здесь регистрируйте ваши обработчики
-	r.Get("/tasks", getAllTasks)
+	r.Get("/tasks", getTasks)
 	r.Post("/tasks", createTask)
-	r.Get("/tasks/{id}", getTaskByID)
-	r.Delete("/tasks/{id}", deleteTaskByID)
+	r.Get("/tasks/{id}", getTask)
+	r.Delete("/tasks/{id}", deleteTask)
 
 	if err := http.ListenAndServe(":8080", r); err != nil {
 		fmt.Printf("Ошибка при запуске сервера: %s", err.Error())
